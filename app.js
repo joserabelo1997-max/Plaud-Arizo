@@ -197,9 +197,12 @@ async function readStream(r) {
   return {text, inTok, outTok, stop};
 }
 function apiError(who, status, body) {
-  let msg = body;
-  try { const j = JSON.parse(body); msg = j.error?.message || j.detail?.message || (typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail || j)); } catch {}
-  if (status === 401) return `${who}: a chave da API não foi aceita. Confira em Eu › Chaves.`;
+  let msg = body, code = "";
+  try { const j = JSON.parse(body); code = j.detail?.status || j.error?.type || ""; msg = j.error?.message || j.detail?.message || (typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail || j)); } catch {}
+  msg = String(msg).slice(0, 300);
+  if (/unusual_activity|free.?tier/i.test(code + " " + msg)) return `${who}: o ElevenLabs bloqueou o uso da API no plano grátis desta conta. Assine o plano Starter no site do ElevenLabs e tente de novo. (${msg})`;
+  if (/missing_permissions|permission/i.test(code + " " + msg)) return `${who}: a chave não tem permissão de Speech to Text. Edite a chave no site do ElevenLabs, libere Speech to Text e tente de novo. (${msg})`;
+  if (status === 401) return `${who}: a chave da API não foi aceita. Confira em Eu › Chaves. Detalhe: ${code ? code + ", " : ""}${msg}`;
   if (status === 402 || /credit|quota|balance/i.test(msg)) return `${who}: sem créditos na conta. ${msg}`;
   return `${who} (${status}): ${String(msg).slice(0, 300)}`;
 }
