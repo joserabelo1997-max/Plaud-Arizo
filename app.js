@@ -218,10 +218,11 @@ function keyterms() {
 }
 async function transcribeEL(f) {
   const blob = await DB.get("audio", f.id);
-  if (!blob) throw new Error("O áudio deste arquivo não está neste aparelho.");
   const fd = new FormData();
   fd.append("model_id", "scribe_v2");
-  fd.append("file", blob, f.fname || "audio");
+  if (blob) fd.append("file", blob, f.fname || "audio");
+  else if (f.plaudId) fd.append("source_url", await plaudAudioUrl(f.plaudId));
+  else throw new Error("O áudio deste arquivo não está neste aparelho.");
   if (CFG.lang !== "auto") fd.append("language_code", CFG.lang);
   fd.append("diarize", String(!!CFG.speakers));
   fd.append("timestamps_granularity", "word");
@@ -664,6 +665,7 @@ async function openFile(id) {
     a.pause(); if (audioUrl) URL.revokeObjectURL(audioUrl); audioUrl = null; a.removeAttribute("src"); audioFor = id;
     const blob = f.hasAudio ? await DB.get("audio", id) : null;
     if (blob && S.open === id) { audioUrl = URL.createObjectURL(blob); a.src = audioUrl; a.playbackRate = speed; }
+    else if (!blob && f.plaudId && S.open === id) { try { a.src = await plaudAudioUrl(f.plaudId); a.playbackRate = speed; } catch {} }
   }
   syncPlayer();
 }
@@ -991,7 +993,13 @@ function meView() {
     <div class="opt"><span>Espaço usado</span><span class="v" id="sto">…</span></div>
     <div class="row2" style="padding:10px 0 12px"><button class="sbtn" id="bk">Salvar backup</button><button class="sbtn" id="rs">Restaurar</button></div></div>
   <p class="note" style="padding-top:6px">O backup guarda textos, pastas e vocabulário (sem os áudios). Salve em Arquivos ou no iCloud Drive. Para guardar um áudio, abra o arquivo › ⋯ › Salvar o áudio em Arquivos.</p>
-  <div class="mh">De onde vêm as gravações</div><div class="mcard"><button class="srow" id="hp"><span class="ic">?</span>Como trazer do app da Plaud<span class="r">›</span></button></div>
+  <div class="mh">Conta da Plaud</div><div class="mcard">${CFG.plaud?.token
+    ? `<div class="opt"><span>Conectada<br><small>${esc(CFG.plaud.email || "")}</small></span><span class="v keyok">✓</span></div>
+       <div class="opt"><span>Buscar sozinho ao abrir o app</span>${tog(CFG.plaudAuto !== false, "pau", "Buscar sozinho ao abrir o app")}</div>
+       <div class="opt"><span>Última busca</span><span class="v">${CFG.plaud.last ? dmy(CFG.plaud.last) + " " + hm(CFG.plaud.last) : "nunca"}</span></div>
+       <div class="row2" style="padding:6px 0 12px"><button class="sbtn" id="psy">Buscar agora</button><button class="sbtn danger" id="pout">Desconectar</button></div>`
+    : `<button class="srow" id="pin"><span class="ic">☁︎</span>Conectar a conta da Plaud<span class="r">›</span></button>`}
+    <button class="srow" id="hp"><span class="ic">?</span>Trazer um arquivo manualmente<span class="r">›</span></button></div>
   <p class="note">Plaud Arizo · versão 1.0</p>`;
 }
 function bindMe() {
@@ -1012,6 +1020,10 @@ function bindMe() {
   };
   $("#hk").onclick = keysHelp;
   $("#hp").onclick = plaudHelp;
+  const pin = $("#pin"); if (pin) pin.onclick = plaudLogin;
+  const psy = $("#psy"); if (psy) psy.onclick = () => plaudSync(true);
+  const pout = $("#pout"); if (pout) pout.onclick = async () => { CFG.plaud = null; await saveCfg(); render(true); toast("Conta da Plaud desconectada"); };
+  const pau = $("#pau"); if (pau) pau.onclick = e => { CFG.plaudAuto = CFG.plaudAuto === false; e.target.setAttribute("aria-checked", String(CFG.plaudAuto)); saveCfg(); };
   $("#bk").onclick = backup;
   $("#rs").onclick = () => $("#restore").click();
   navigator.storage?.estimate?.().then(e => { const el = $("#sto"); if (el) el.textContent = (e.usage / 1048576).toFixed(0) + " MB"; }).catch(() => {});
@@ -1133,15 +1145,98 @@ async function restore(file) {
   } catch { toast("Este arquivo não é um backup do Plaud Arizo"); }
 }
 
+/* ---------- conta da Plaud (API usada pelo site web.plaud.ai; não é oficial e pode mudar) ---------- */
+const PLAUD_API = "https://api.plaud.ai";
+async function plaudCall(path, {method = "GET", body, base, token} = {}) {
+  const headers = {"content-type": "application/json"};
+  const tk = token ?? CFG.plaud?.token; if (tk) headers.authorization = "Bearer " + tk;
+  let r;
+  try { r = await fetch((base || CFG.plaud?.api || PLAUD_API) + path, {method, headers, body: body ? JSON.stringify(body) : undefined}); }
+  catch { throw new Error("A Plaud não aceitou a conexão direto deste app. Me avise no chat do projeto que eu sigo pelo outro caminho."); }
+  let j = {}; try { j = await r.json(); } catch {}
+  if (r.status === 401 || r.status === 403) { if (CFG.plaud && !token) { CFG.plaud.token = ""; await saveCfg(); } throw new Error("A sessão da Plaud expirou. Conecte a conta de novo em Eu › Conta da Plaud."); }
+  if (!r.ok) throw new Error(`Plaud (${r.status}): ${j.msg || r.statusText}`);
+  return j;
+}
+function plaudLogin() {
+  const s = sheet(`<h3>Conectar a conta da Plaud</h3><p class="sub">Use o mesmo e-mail do app da Plaud. A Plaud manda um código para ele.</p>
+    <div class="field"><label for="pe">E-mail</label><input id="pe" type="email" autocomplete="email" value="${esc(CFG.plaud?.email || "")}" placeholder="voce@email.com"></div>
+    <div class="field" id="pcw" hidden><label for="pc">Código que chegou no e-mail</label><input id="pc" inputmode="numeric" autocomplete="one-time-code" placeholder="000000"></div>
+    <div class="errbox" id="perr" hidden></div>
+    <button class="primary" id="pgo">Enviar código</button>
+    <p class="sub" style="margin-top:12px">O app guarda só a sessão, neste iPhone. Nunca guarda a sua senha.</p>`);
+  let otp = null, base = PLAUD_API;
+  const err = m => { const e = s.querySelector("#perr"); e.hidden = !m; e.textContent = m || ""; };
+  const go = s.querySelector("#pgo");
+  go.onclick = async () => {
+    err(""); go.disabled = true;
+    try {
+      if (!otp) {
+        const email = s.querySelector("#pe").value.trim(); if (!email) throw new Error("Escreva o e-mail.");
+        for (let i = 0; i < 3; i++) {
+          const j = await plaudCall("/auth/otp-send-code", {method: "POST", body: {username: email}, base, token: ""});
+          if (j.status === -302 && j.data?.domains?.api) { base = j.data.domains.api.replace(/\/+$/, ""); continue; }
+          if (j.status !== 0 || !j.token) throw new Error(j.msg || "A Plaud não enviou o código.");
+          otp = j.token; break;
+        }
+        if (!otp) throw new Error("A Plaud não enviou o código.");
+        CFG.plaud = {email, api: base, token: ""};
+        s.querySelector("#pcw").hidden = false; go.textContent = "Entrar"; s.querySelector("#pc").focus();
+      } else {
+        const code = s.querySelector("#pc").value.trim(); if (!code) throw new Error("Digite o código.");
+        const j = await plaudCall("/auth/otp-login", {method: "POST", body: {code, token: otp}, base, token: ""});
+        const at = j.access_token || j.data?.access_token; if (!at) throw new Error(j.msg || "Código inválido.");
+        CFG.plaud = {...CFG.plaud, token: at, api: base, last: 0}; await saveCfg();
+        close(); toast("Conta da Plaud conectada ✓"); render(true); plaudSync(true);
+      }
+    } catch (e) { err(e.message); }
+    go.disabled = false;
+  };
+}
+async function plaudAudioUrl(id) {
+  const j = await plaudCall(`/file/temp-url/${id}?is_opus=0`);
+  const u = j.temp_url || j.temp_url_opus; if (!u) throw new Error("A Plaud não devolveu o áudio.");
+  return u;
+}
+let syncing = false;
+async function plaudSync(manual) {
+  if (syncing || !CFG.plaud?.token) return; syncing = true;
+  if (manual) toast("Buscando gravações na Plaud…");
+  try {
+    const j = await plaudCall("/file/simple/web?skip=0&limit=50&is_trash=0&sort_by=start_time&is_desc=true");
+    const list = (j.data_file_list || []).filter(r => r.id && !files.some(f => f.plaudId === r.id));
+    const added = [];
+    for (const r of list.reverse()) {
+      const created = r.start_time || r.edit_time * 1000 || Date.now();
+      const f = {id: uid(), plaudId: r.id, title: (r.filename || "").trim() || "Gravação " + dmy(created).slice(0, 5) + " " + hm(created), autoTitle: true,
+        created, dur: (r.duration || 0) / 1000, folder: null, status: "new", hasAudio: true, fname: r.id + ".mp3", mime: "", size: r.filesize || 0};
+      try {
+        const res = await fetch(await plaudAudioUrl(r.id));
+        if (res.ok) { const b = await res.blob(); await DB.put("audio", b, f.id); f.mime = b.type; f.size = b.size; }
+      } catch {}  // sem cópia local: o app toca e transcreve direto do link da Plaud
+      files.push(f); await saveFile(f); added.push(f);
+    }
+    files.sort((a, b) => b.created - a.created);
+    CFG.plaud.last = Date.now(); await saveCfg();
+    if (added.length) { toast(`${added.length} ${added.length === 1 ? "gravação nova" : "gravações novas"} da Plaud`); if (!S.open) render(true); }
+    else if (manual) toast("Nenhuma gravação nova na Plaud");
+    if (added.length && CFG.autogen && CFG.elKey && CFG.anKey) runQueue(added);
+  } catch (e) { if (manual) toast(e.message, 6000); }
+  syncing = false;
+  if (S.tab === "me" && !S.open) render(true);
+}
+
 /* ---------- início ---------- */
 $$("#tb [data-tab]").forEach(b => b.onclick = () => {
   const t = b.dataset.tab;
   if (t === "rec") {
     const s = sheet(`<h3>Adicionar gravação</h3>
+      <button class="srow" id="rpl"><span class="ic">☁︎</span>${CFG.plaud?.token ? "Buscar novas da Plaud" : "Conectar a conta da Plaud"}<span class="r">${CFG.plaud?.token ? "conta conectada" : ""}</span></button>
       <button class="srow" id="ri"><span class="ic">⇪</span>Importar arquivo de áudio<span class="r">Arquivos, iCloud</span></button>
       <button class="srow" id="rr"><span class="ic" style="color:#e5352b">●</span>Gravar pelo iPhone</button>
       <button class="srow" id="rp"><span class="ic">?</span>Como trazer do app da Plaud</button>`);
     s.querySelector("#ri").onclick = () => { close(); $("#picker").click(); };
+    s.querySelector("#rpl").onclick = () => { if (CFG.plaud?.token) { close(); plaudSync(true); } else plaudLogin(); };
     s.querySelector("#rr").onclick = recorder;
     s.querySelector("#rp").onclick = plaudHelp;
     return;
@@ -1155,5 +1250,8 @@ const au = $("#audio");
 au.addEventListener("loadedmetadata", async () => { const f = audioFor && fileById(audioFor); if (f && !f.dur && isFinite(au.duration)) { f.dur = au.duration; await saveFile(f); } });
 window.addEventListener("beforeunload", e => { if (Object.keys(RUN).length) { e.preventDefault(); e.returnValue = ""; } });
 
-load().then(() => render()).catch(e => { $("#screen").innerHTML = `<div class="empty"><b>Não consegui abrir o armazenamento</b><span>${esc(e.message || e)}</span></div>`; });
+load().then(() => { render(); if (CFG.plaud?.token && CFG.plaudAuto !== false) plaudSync(false); }).catch(e => { $("#screen").innerHTML = `<div class="empty"><b>Não consegui abrir o armazenamento</b><span>${esc(e.message || e)}</span></div>`; });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && CFG.plaud?.token && CFG.plaudAuto !== false && Date.now() - (CFG.plaud.last || 0) > 10 * 60000) plaudSync(false);
+});
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
