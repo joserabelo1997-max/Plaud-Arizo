@@ -1000,7 +1000,7 @@ function meView() {
        <div class="row2" style="padding:6px 0 12px"><button class="sbtn" id="psy">Buscar agora</button><button class="sbtn danger" id="pout">Desconectar</button></div>`
     : `<button class="srow" id="pin"><span class="ic">☁︎</span>Conectar a conta da Plaud<span class="r">›</span></button>`}
     <button class="srow" id="hp"><span class="ic">?</span>Trazer um arquivo manualmente<span class="r">›</span></button></div>
-  <p class="note">Plaud Arizo · versão 1.0</p>`;
+  <p class="note">Plaud Arizo · versão 1.1</p>`;
 }
 function bindMe() {
   const save = async () => { await saveCfg(); };
