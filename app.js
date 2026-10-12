@@ -93,9 +93,10 @@ const DEFAULT_CFG = {
   context: "Sou o Jose, gestor de um restaurante de sushi em São Paulo. As gravações são da operação: equipe, cozinha, compras e fornecedores.",
 };
 const MODELS = {
-  "claude-opus-5-5": {label:"Claude Opus 5.5", hint:"melhor qualidade", inP:4, outP:20, perHour:0.45},
-  "claude-sonnet-5-5": {label:"Claude Sonnet 5.5", hint:"mais barato", inP:2, outP:10, perHour:0.22},
+  "claude-opus-5-5": {label:"Claude Opus 5.5", hint:"melhor qualidade", inP:4, outP:20, perHour:0.30},
+  "claude-sonnet-5-5": {label:"Claude Sonnet 5.5", hint:"mais barato", inP:2, outP:10, perHour:0.18},
 };
+const HELPER = "claude-sonnet-5-5";  // correção de nomes e conferência: tarefas simples, vão no modelo mais barato
 const STT_PER_HOUR = 0.22;      // ElevenLabs Scribe v2, por hora de áudio (estimativa)
 const KEYTERM_SURCHARGE = 1.2;  // +20% quando o vocabulário vai junto
 const KINDS = {pessoas:"Pessoa", ja:"Termo em japonês", en:"Termo em inglês ou outro idioma", lugares:"Lugar ou empresa"};
@@ -141,15 +142,15 @@ async function addUsage(part) {
 }
 function estimate(f) {
   const h = (f.dur || 600) / 3600, stt = f.tr ? 0 : h * STT_PER_HOUR * (vcount() ? KEYTERM_SURCHARGE : 1);
-  const cl = Math.max(0.02, h * (MODELS[CFG.model]?.perHour || 0.45));
+  const cl = Math.max(0.02, h * (MODELS[CFG.model]?.perHour || 0.30));
   return {stt, cl, total: stt + cl};
 }
 
 /* ---------- Claude (chamada direta do navegador, com a chave do usuário) ---------- */
-async function claude({system, content, schema, effort = "high", max = 16000}) {
+async function claude({system, content, schema, effort = "high", max = 16000, model = CFG.model}) {
   let useFb = CFG.fallbacks !== false;
   for (let attempt = 0; attempt < 4; attempt++) {
-    const body = {model: CFG.model, max_tokens: max, stream: true, system, thinking: {type: "adaptive"},
+    const body = {model, max_tokens: max, stream: true, system, thinking: {type: "adaptive"},
       output_config: {effort}, messages: [{role: "user", content}]};
     if (schema) body.output_config.format = {type: "json_schema", schema};
     const headers = {"content-type": "application/json", "x-api-key": CFG.anKey, "anthropic-version": "2023-06-01",
@@ -165,7 +166,7 @@ async function claude({system, content, schema, effort = "high", max = 16000}) {
       throw new Error(apiError("Claude", r.status, t));
     }
     const out = await readStream(r);
-    const price = MODELS[CFG.model] || MODELS["claude-opus-5-5"];
+    const price = MODELS[model] || MODELS["claude-opus-5-5"];
     await addUsage({claudeUsd: (out.inTok * price.inP + out.outTok * price.outP) / 1e6});
     if (out.stop === "refusal") throw new Error("O Claude recusou este conteúdo.");
     if (out.stop === "max_tokens") throw new Error("A resposta ficou longa demais. Tente de novo ou use um modelo de resumo mais curto.");
@@ -226,6 +227,10 @@ async function transcribeEL(f) {
   else throw new Error("O áudio deste arquivo não está neste aparelho.");
   if (CFG.lang !== "auto") fd.append("language_code", CFG.lang);
   fd.append("diarize", String(!!CFG.speakers));
+  if (CFG.speakers) {
+    if (f.nspk) fd.append("num_speakers", String(f.nspk));
+    else fd.append("diarization_threshold", "0.15");  // padrão do ElevenLabs (0,22) junta vozes parecidas numa pessoa só
+  }
   fd.append("timestamps_granularity", "word");
   fd.append("tag_audio_events", "false");
   const kt = keyterms(); kt.forEach(k => fd.append("keyterms", k));
@@ -317,7 +322,7 @@ async function fixPass(f) {
   const segs = f.tr.segs;
   segs.forEach(s => { s.text = s.raw; });
   const spIds = [...new Set(segs.map(s => s.sp))];
-  const res = await claude({system: SYS, effort: "medium", max: 32000, schema: FIX_SCHEMA, content:
+  const res = await claude({system: SYS, model: HELPER, effort: "low", max: 32000, schema: FIX_SCHEMA, content:
 `${ctxText(f)}
 
 VOCABULÁRIO (grafias corretas):
@@ -403,7 +408,7 @@ async function verify(f) {
   const items = [];
   f.sum.sections.forEach((s, a) => s.items.forEach((it, b) => items.push(`S${a}.${b}: ${it.text} (linhas ${it.refs.map(r => "#" + r).join(", ") || "nenhuma"})`)));
   if (!items.length) return;
-  const res = await claude({system: SYS, effort: "medium", max: 16000, schema: CHECK_SCHEMA, content:
+  const res = await claude({system: SYS, model: HELPER, effort: "low", max: 16000, schema: CHECK_SCHEMA, content:
 `TRANSCRIÇÃO:
 ${trText(f)}
 
@@ -769,11 +774,16 @@ function genSheet(f) {
     <div class="opt"><span>Termos estrangeiros</span><span class="v">Inglês e japonês, pelo vocabulário</span></div>
     <div class="opt"><span>Vocabulário<br><small>${VOCAB.pessoas.length} pessoas, ${VOCAB.ja.length + VOCAB.en.length} termos estrangeiros, ${VOCAB.lugares.length} lugares</small></span><span class="v">${vcount()} termos</span></div>
     <div class="opt"><span>Identificar quem fala</span>${tog(CFG.speakers, "gsp", "Identificar quem fala")}</div>
+    <div class="opt"><span>Pessoas na conversa<br><small>Se souber, ajuda a separar as vozes</small></span><select id="gnp" style="font:inherit;color:var(--ink);background:var(--fill);border:0;border-radius:8px;padding:6px 8px">${["", 2, 3, 4, 5, 6, 8, 10].map(n => `<option value="${n}" ${String(f.nspk || "") === String(n) ? "selected" : ""}>${n || "Não sei"}</option>`).join("")}</select></div>
+    ${f.tr ? `<div class="opt"><span>Transcrever de novo<br><small>Use se as pessoas saíram misturadas</small></span>${tog(false, "grt", "Transcrever de novo")}</div>` : ""}
     <div class="opt"><span>Modelo do resumo</span><select id="gtp" style="font:inherit;color:var(--ink);background:var(--fill);border:0;border-radius:8px;padding:6px 8px;max-width:55%">${allTemplates().map(t => `<option ${t.name === tpl ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></div>
     <div class="opt"><span>Custo estimado<br><small>transcrição ${usd(e.stt)} + Claude ${usd(e.cl)}</small></span><span class="v">≈ ${usd(e.total)}</span></div>
     <button class="gbtn" id="go" style="margin-top:12px">✦ Gerar</button>`);
   s.querySelector("#gsp").onclick = async ev => { CFG.speakers = !CFG.speakers; ev.target.setAttribute("aria-checked", String(CFG.speakers)); await saveCfg(); };
-  s.querySelector("#go").onclick = async () => { f.tpl = s.querySelector("#gtp").value; await saveFile(f); close(); generate(f); };
+  let again = false; const grt = s.querySelector("#grt");
+  if (grt) grt.onclick = ev => { again = !again; ev.target.setAttribute("aria-checked", String(again)); };
+  s.querySelector("#gnp").onchange = ev => { const n = +ev.target.value || 0; if (f.tr && n !== (f.nspk || 0) && grt && !again) grt.click(); };
+  s.querySelector("#go").onclick = async () => { f.tpl = s.querySelector("#gtp").value; f.nspk = +s.querySelector("#gnp").value || 0; await saveFile(f); close(); generate(f, again ? "stt" : undefined); };
 }
 function tplSheet(f) {
   const cur = f.sum?.tpl;
@@ -1001,7 +1011,7 @@ function meView() {
        <div class="row2" style="padding:6px 0 12px"><button class="sbtn" id="psy">Buscar agora</button><button class="sbtn danger" id="pout">Desconectar</button></div>`
     : `<button class="srow" id="pin"><span class="ic">☁︎</span>Entrar com a Plaud<span class="r">›</span></button>`}
     <button class="srow" id="hp"><span class="ic">?</span>Trazer um arquivo manualmente<span class="r">›</span></button></div>
-  <p class="note">Plaud Arizo · versão 1.2</p>`;
+  <p class="note">Plaud Arizo · versão 1.3</p>`;
 }
 function bindMe() {
   const save = async () => { await saveCfg(); };

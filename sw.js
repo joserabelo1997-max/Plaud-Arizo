@@ -1,5 +1,5 @@
 /* Guarda a interface para abrir sem internet. Sempre tenta a versão nova primeiro. */
-const CACHE = "escuta-v9";
+const CACHE = "escuta-v10";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "manifest.webmanifest", "icon-192.png", "apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });
