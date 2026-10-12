@@ -1,5 +1,5 @@
 "use strict";
-/* Escuta: transcrição e resumos das gravações, tudo guardado neste aparelho.
+/* Plaud Arizo: transcrição e resumos das gravações, tudo guardado neste aparelho.
    Transcrição: ElevenLabs Scribe v2. Correções, resumos e perguntas: Claude.
    As chaves das APIs ficam só no armazenamento local deste aparelho. */
 
@@ -303,7 +303,7 @@ const ctxText = f => {
   return `CONTEXTO DO USUÁRIO:\n${CFG.context || "(não informado)"}\n\nGRAVAÇÃO: ${f.title} (${dmy(f.created)} ${hm(f.created)}, ${fmt(f.dur)})` +
     (fo ? `\nPASTA: ${fo.name}${fo.desc ? ". " + fo.desc : ""}` : "");
 };
-const SYS = "Você trabalha dentro do Escuta, um app que transforma gravações de áudio em transcrições e resumos confiáveis para um gestor brasileiro. A transcrição vem de reconhecimento de voz e pode ter erros. Responda sempre em português do Brasil. Nunca invente fatos, nomes, números ou decisões que não estejam no áudio.";
+const SYS = "Você trabalha dentro do Plaud Arizo, um app que transforma gravações de áudio em transcrições e resumos confiáveis para um gestor brasileiro. A transcrição vem de reconhecimento de voz e pode ter erros. Responda sempre em português do Brasil. Nunca invente fatos, nomes, números ou decisões que não estejam no áudio.";
 
 /* ---------- etapa 1: correções presas ao vocabulário ---------- */
 const FIX_SCHEMA = {type:"object", additionalProperties:false, required:["corrections","unknown","speakers"], properties:{
@@ -632,7 +632,7 @@ function moreSheet(id) {
     else if (a === "gen") { close(); openFile(id); genSheet(f); }
     else if (a === "ex") { close(); exportText(f); }
     else if (a === "au") { close(); exportAudio(f); }
-    else if (a === "where") sheet(`<h3>Onde está salvo</h3><p>O áudio, a transcrição e o resumo ficam guardados <b>dentro do Escuta, neste iPhone</b>, na pasta “${esc(f.folder || "Sem pasta")}”. Nada vai para um servidor nosso.</p><p class="sub">O áudio só sai do aparelho na hora de transcrever (vai para o ElevenLabs) e o texto vai para o Claude na hora do resumo.</p><p class="sub">Para ter uma cópia fora do app, use “Salvar o áudio em Arquivos” e, em Eu › Backup, salve o backup dos textos.</p>`);
+    else if (a === "where") sheet(`<h3>Onde está salvo</h3><p>O áudio, a transcrição e o resumo ficam guardados <b>dentro do Plaud Arizo, neste iPhone</b>, na pasta “${esc(f.folder || "Sem pasta")}”. Nada vai para um servidor nosso.</p><p class="sub">O áudio só sai do aparelho na hora de transcrever (vai para o ElevenLabs) e o texto vai para o Claude na hora do resumo.</p><p class="sub">Para ter uma cópia fora do app, use “Salvar o áudio em Arquivos” e, em Eu › Backup, salve o backup dos textos.</p>`);
     else if (a === "del") { f.trashed = true; await saveFile(f); close(); S.open = null; render(true); toast("Movido para a lixeira"); }
   });
 }
@@ -987,12 +987,12 @@ function meView() {
     <div class="opt"><span>Limite de minutos</span><span class="v">Nenhum</span></div></div>
   <p class="note" style="padding-top:6px">Valores estimados pelo app. A cobrança real aparece no painel de cada serviço.</p>
   <div class="mh">Onde fica salvo</div><div class="mcard">
-    <div class="opt"><span>Áudios e textos</span><span class="v">Neste iPhone, dentro do Escuta</span></div>
+    <div class="opt"><span>Áudios e textos</span><span class="v">Neste iPhone, dentro do Plaud Arizo</span></div>
     <div class="opt"><span>Espaço usado</span><span class="v" id="sto">…</span></div>
     <div class="row2" style="padding:10px 0 12px"><button class="sbtn" id="bk">Salvar backup</button><button class="sbtn" id="rs">Restaurar</button></div></div>
   <p class="note" style="padding-top:6px">O backup guarda textos, pastas e vocabulário (sem os áudios). Salve em Arquivos ou no iCloud Drive. Para guardar um áudio, abra o arquivo › ⋯ › Salvar o áudio em Arquivos.</p>
   <div class="mh">De onde vêm as gravações</div><div class="mcard"><button class="srow" id="hp"><span class="ic">?</span>Como trazer do app da Plaud<span class="r">›</span></button></div>
-  <p class="note">Escuta · versão 1.0</p>`;
+  <p class="note">Plaud Arizo · versão 1.0</p>`;
 }
 function bindMe() {
   const save = async () => { await saveCfg(); };
@@ -1029,7 +1029,7 @@ function plaudHelp() {
     <div class="how" style="margin:8px 0">
     <div class="step"><b class="n">1</b><span>No app da Plaud, abra a gravação e use a opção de exportar ou compartilhar o <b>áudio</b>.</span></div>
     <div class="step"><b class="n">2</b><span>Escolha <b>Salvar em Arquivos</b> e guarde numa pasta, por exemplo iCloud Drive › Plaud.</span></div>
-    <div class="step"><b class="n">3</b><span>Aqui no Escuta, toque no <b>+</b> › Importar arquivo de áudio e escolha o arquivo. Pode escolher vários de uma vez.</span></div></div>
+    <div class="step"><b class="n">3</b><span>Aqui no Plaud Arizo, toque no <b>+</b> › Importar arquivo de áudio e escolha o arquivo. Pode escolher vários de uma vez.</span></div></div>
     <p class="sub">Se você estiver dentro de uma pasta, os áudios importados já entram nela.</p>`);
 }
 
@@ -1130,7 +1130,7 @@ async function restore(file) {
       files.push(f); await saveFile(f); n++;
     }
     files.sort((a, b) => b.created - a.created); render(); toast(`Backup restaurado: ${n} arquivos`);
-  } catch { toast("Este arquivo não é um backup do Escuta"); }
+  } catch { toast("Este arquivo não é um backup do Plaud Arizo"); }
 }
 
 /* ---------- início ---------- */

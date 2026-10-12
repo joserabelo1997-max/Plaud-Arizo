@@ -1,4 +1,4 @@
-# Escuta
+# Plaud Arizo
 
 App web para iPhone que transcreve e resume as gravações do Plaud Note, sem assinatura.
 
