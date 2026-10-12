@@ -200,6 +200,7 @@ function apiError(who, status, body) {
   let msg = body, code = "";
   try { const j = JSON.parse(body); code = j.detail?.status || j.error?.type || ""; msg = j.error?.message || j.detail?.message || (typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail || j)); } catch {}
   msg = String(msg).slice(0, 300);
+  if (/key ID used as API key/i.test(msg)) return `${who}: foi colado o ID da chave, não a chave. Crie uma chave nova no ElevenLabs, copie o texto que começa com sk_ e cole em Eu › Chaves.`;
   if (/unusual_activity|free.?tier/i.test(code + " " + msg)) return `${who}: o ElevenLabs bloqueou o uso da API no plano grátis desta conta. Assine o plano Starter no site do ElevenLabs e tente de novo. (${msg})`;
   if (/missing_permissions|permission/i.test(code + " " + msg)) return `${who}: a chave não tem permissão de Speech to Text. Edite a chave no site do ElevenLabs, libere Speech to Text e tente de novo. (${msg})`;
   if (status === 401) return `${who}: a chave da API não foi aceita. Confira em Eu › Chaves. Detalhe: ${code ? code + ", " : ""}${msg}`;
@@ -1004,7 +1005,7 @@ function meView() {
 }
 function bindMe() {
   const save = async () => { await saveCfg(); };
-  $("#kel").onchange = e => { CFG.elKey = e.target.value.trim(); save().then(() => render(true)); };
+  $("#kel").onchange = e => { CFG.elKey = e.target.value.trim(); if (CFG.elKey && !CFG.elKey.startsWith("sk_")) toast("Essa não parece a chave do ElevenLabs. A chave certa começa com sk_ (o ID da chave não serve).", 7000); save().then(() => render(true)); };
   $("#kan").onchange = e => { CFG.anKey = e.target.value.trim(); save().then(() => render(true)); };
   $("#cm").onchange = e => { CFG.model = e.target.value; save(); };
   $("#cl").onchange = e => { CFG.lang = e.target.value; save(); };
